@@ -40,6 +40,7 @@ contract StargateFeeLibraryV02 is IStargateFeeLibrary, Ownable, ReentrancyGuard 
         address, /*_from*/
         uint256 _amountSD
     ) external view override returns (Pool.SwapObj memory s) {
+        
         // calculate the protocol fee
         s.protocolFee = _amountSD.mul(PROTOCOL_FEE).div(DENOMINATOR);
 
