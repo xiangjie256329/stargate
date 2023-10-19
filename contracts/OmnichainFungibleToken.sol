@@ -15,11 +15,13 @@ import "./interfaces/ILayerZeroUserApplicationConfig.sol";
 //
 // Stay tuned for maximum cross-chain compatability of your token
 //---------------------------------------------------------------------------
+// 这是一个名为OmnichainFungibleToken的智能合约，它实现了ERC20、Ownable、ILayerZeroReceiver和
+// ILayerZeroUserApplicationConfig等接口。该智能合约用于跨链转账，并具有暂停和恢复功能。
 contract OmnichainFungibleToken is ERC20, Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig {
     ILayerZeroEndpoint immutable public endpoint;
-    mapping(uint16 => bytes) public dstContractLookup; // a map of the connected contracts
-    bool public paused; // indicates cross chain transfers are paused
-    bool public isMain; // indicates this contract is on the main chain
+    mapping(uint16 => bytes) public dstContractLookup; // 目标链的合约地址映射
+    bool public paused; // 表示跨链转账是否暂停
+    bool public isMain; // 表示该合约是否在主链上
 
     event Paused(bool isPaused);
     event SendToChain(uint16 srcChainId, bytes toAddress, uint256 qty, uint64 nonce);
@@ -32,53 +34,53 @@ contract OmnichainFungibleToken is ERC20, Ownable, ILayerZeroReceiver, ILayerZer
         uint16 _mainChainId,
         uint256 _initialSupplyOnMainEndpoint
     ) ERC20(_name, _symbol) {
-        // only mint the total supply on the main chain
+        // 只在主链上铸造总供应量
         if (ILayerZeroEndpoint(_endpoint).getChainId() == _mainChainId) {
             _mint(msg.sender, _initialSupplyOnMainEndpoint);
             isMain = true;
         }
-        // set the LayerZero endpoint
+        // 设置 LayerZero 端点地址
         endpoint = ILayerZeroEndpoint(_endpoint);
     }
 
     function pauseSendTokens(bool _pause) external onlyOwner {
-        paused = _pause;
+        paused = _pause; // 暂停/恢复跨链转账
         emit Paused(_pause);
     }
 
     function setDestination(uint16 _dstChainId, bytes calldata _destinationContractAddress) public onlyOwner {
-        dstContractLookup[_dstChainId] = _destinationContractAddress;
+        dstContractLookup[_dstChainId] = _destinationContractAddress; // 设置目标链的合约地址
     }
 
     function chainId() external view returns (uint16){
-        return endpoint.getChainId();
+        return endpoint.getChainId(); // 获取链的ID
     }
 
     function sendTokens(
-        uint16 _dstChainId, // send tokens to this chainId
-        bytes calldata _to, // where to deliver the tokens on the destination chain
-        uint256 _qty, // how many tokens to send
-        address _zroPaymentAddress, // ZRO payment address
-        bytes calldata _adapterParam // txParameters
+        uint16 _dstChainId, // 发送代币到该链ID
+        bytes calldata _to, // 在目标链上投递代币的地址
+        uint256 _qty, // 发送的代币数量
+        address _zroPaymentAddress, // ZRO 支付地址
+        bytes calldata _adapterParam // 交易参数
     ) public payable {
         require(!paused, "OFT: sendTokens() is currently paused");
 
-        // lock by transferring to this contract if leaving the main chain, otherwise burn
+        // 如果在主链上，则通过转账到合约进行锁定，否则销毁
         if (isMain) {
             _transfer(msg.sender, address(this), _qty);
         } else {
             _burn(msg.sender, _qty);
         }
 
-        // abi.encode() the payload with the values to send
+        // 使用 abi.encode() 对要发送的值进行编码
         bytes memory payload = abi.encode(_to, _qty);
 
-        // send LayerZero message
+        // 发送 LayerZero 消息
         endpoint.send{value: msg.value}(
-            _dstChainId, // destination chainId
-            dstContractLookup[_dstChainId], // destination UA address
-            payload, // abi.encode()'ed bytes
-            msg.sender, // refund address (LayerZero will refund any extra gas back to msg.sender
+            _dstChainId, // 目标链ID
+            dstContractLookup[_dstChainId], // 目标 UA 地址
+            payload, // 编码的字节数组
+            msg.sender, // 退款地址（LayerZero 将把多余的手续费退还给该地址）
             _zroPaymentAddress, // 'zroPaymentAddress'
             _adapterParam // 'adapterParameters'
         );
@@ -92,21 +94,21 @@ contract OmnichainFungibleToken is ERC20, Ownable, ILayerZeroReceiver, ILayerZer
         uint64 _nonce,
         bytes memory _payload
     ) external override {
-        require(msg.sender == address(endpoint)); // lzReceive must only be called by the endpoint
+        require(msg.sender == address(endpoint)); // 只能由端点调用 lzReceive
         require(
             _fromAddress.length == dstContractLookup[_srcChainId].length && keccak256(_fromAddress) == keccak256(dstContractLookup[_srcChainId]),
             "OFT: invalid source sending contract"
         );
 
-        // decode and load the toAddress
+        // 解码并加载 to 地址
         (bytes memory _to, uint256 _qty) = abi.decode(_payload, (bytes, uint256));
         address toAddress;
         assembly { toAddress := mload(add(_to, 20)) }
 
-        // if the toAddress is 0x0, burn it
+        // 如果 to 地址是 0x0，则销毁代币
         if (toAddress == address(0x0)) toAddress == address(0xdEaD);
 
-        // on the main chain unlock via transfer, otherwise _mint
+        // 在主链上通过转账解锁代币，否则铸造代币
         if (isMain) {
             _transfer(address(this), toAddress, _qty);
         } else {
@@ -117,32 +119,32 @@ contract OmnichainFungibleToken is ERC20, Ownable, ILayerZeroReceiver, ILayerZer
     }
 
     function estimateSendTokensFee(uint16 _dstChainId, bytes calldata _toAddress, bool _useZro, bytes calldata _txParameters) external view returns (uint256 nativeFee, uint256 zroFee) {
-        // mock the payload for sendTokens()
+        // 模拟 sendTokens() 的 payload
         bytes memory payload = abi.encode(_toAddress, 1);
         return endpoint.estimateFees(_dstChainId, address(this), payload, _useZro, _txParameters);
     }
 
     //---------------------------DAO CALL----------------------------------------
-    // generic config for user Application
+    // 用户应用的通用配置
     function setConfig(
         uint16 _version,
         uint16 _chainId,
         uint256 _configType,
         bytes calldata _config
     ) external override onlyOwner {
-        endpoint.setConfig(_version, _chainId, _configType, _config);
+        endpoint.setConfig(_version, _chainId, _configType, _config); // 设置用户应用的配置
     }
 
     function setSendVersion(uint16 _version) external override onlyOwner {
-        endpoint.setSendVersion(_version);
+        endpoint.setSendVersion(_version); // 设置发送版本
     }
 
     function setReceiveVersion(uint16 _version) external override onlyOwner {
-        endpoint.setReceiveVersion(_version);
+        endpoint.setReceiveVersion(_version); // 设置接收版本
     }
 
     function forceResumeReceive(uint16 _srcChainId, bytes calldata _srcAddress) external override onlyOwner {
-        endpoint.forceResumeReceive(_srcChainId, _srcAddress);
+        endpoint.forceResumeReceive(_srcChainId, _srcAddress); // 强制恢复接收
     }
 
     function renounceOwnership() public override onlyOwner {}

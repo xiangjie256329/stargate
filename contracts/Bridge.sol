@@ -4,66 +4,69 @@ pragma solidity 0.7.6;
 pragma abicoder v2;
 
 // imports
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol"; // 导入 openzeppelin 库中的 Ownable 合约
 
-import "./Pool.sol";
-import "./Router.sol";
+import "./Pool.sol"; // 导入自定义合约 Pool.sol
+import "./Router.sol"; // 导入自定义合约 Router.sol
 
 // libraries
-import "@openzeppelin/contracts/math/SafeMath.sol";
-import "./interfaces/ILayerZeroReceiver.sol";
-import "./interfaces/ILayerZeroEndpoint.sol";
-import "./interfaces/ILayerZeroUserApplicationConfig.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol"; // 导入 openzeppelin 库中的 SafeMath 库
+import "./interfaces/ILayerZeroReceiver.sol"; // 导入自定义接口 ILayerZeroReceiver
+import "./interfaces/ILayerZeroEndpoint.sol"; // 导入自定义接口 ILayerZeroEndpoint
+import "./interfaces/ILayerZeroUserApplicationConfig.sol"; // 导入自定义接口 ILayerZeroUserApplicationConfig
 
 contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig {
-    using SafeMath for uint256;
+    using SafeMath for uint256; // 使用 SafeMath 库中的安全数学运算函数
 
     //---------------------------------------------------------------------------
-    // CONSTANTS
-    uint8 internal constant TYPE_SWAP_REMOTE = 1;
-    uint8 internal constant TYPE_ADD_LIQUIDITY = 2;
-    uint8 internal constant TYPE_REDEEM_LOCAL_CALL_BACK = 3;
-    uint8 internal constant TYPE_WITHDRAW_REMOTE = 4;
+    // CONSTANTS（常量）
+    uint8 internal constant TYPE_SWAP_REMOTE = 1; // 远程交换类型
+    uint8 internal constant TYPE_ADD_LIQUIDITY = 2; // 添加流动性类型
+    uint8 internal constant TYPE_REDEEM_LOCAL_CALL_BACK = 3; // 本地回调赎回类型
+    uint8 internal constant TYPE_WITHDRAW_REMOTE = 4; // 远程提取类型
 
     //---------------------------------------------------------------------------
-    // VARIABLES
-    ILayerZeroEndpoint public immutable layerZeroEndpoint;
-    mapping(uint16 => bytes) public bridgeLookup;
-    mapping(uint16 => mapping(uint8 => uint256)) public gasLookup;
-    Router public immutable router;
-    bool public useLayerZeroToken;
+    // VARIABLES（变量）
+    ILayerZeroEndpoint public immutable layerZeroEndpoint; // 不可变的 LayerZeroEndpoint 实例
+    mapping(uint16 => bytes) public bridgeLookup; // 桥接查询映射表，用于验证桥接是否匹配
+    mapping(uint16 => mapping(uint8 => uint256)) public gasLookup; // 燃气查询映射表，用于存储燃气费
+
+    Router public immutable router; // 不可变的 Router 实例
+    bool public useLayerZeroToken; // 是否使用 LayerZero 代币
 
     //---------------------------------------------------------------------------
-    // EVENTS
-    event SendMsg(uint8 msgType, uint64 nonce);
+    // EVENTS（事件）
+    event SendMsg(uint8 msgType, uint64 nonce); // 发送消息事件
 
     //---------------------------------------------------------------------------
-    // MODIFIERS
+    // MODIFIERS（修饰器）
     modifier onlyRouter() {
-        require(msg.sender == address(router), "Stargate: caller must be Router.");
+        require(msg.sender == address(router), "Stargate: caller must be Router."); // 限制只能由 Router 合约调用
         _;
     }
 
     constructor(address _layerZeroEndpoint, address _router) {
-        require(_layerZeroEndpoint != address(0x0), "Stargate: _layerZeroEndpoint cannot be 0x0");
-        require(_router != address(0x0), "Stargate: _router cannot be 0x0");
-        layerZeroEndpoint = ILayerZeroEndpoint(_layerZeroEndpoint);
-        router = Router(_router);
+        require(_layerZeroEndpoint != address(0x0), "Stargate: _layerZeroEndpoint cannot be 0x0"); // 确保 _layerZeroEndpoint 地址不为0
+        require(_router != address(0x0), "Stargate: _router cannot be 0x0"); // 确保 _router 地址不为0
+
+        layerZeroEndpoint = ILayerZeroEndpoint(_layerZeroEndpoint); // 初始化 layerZeroEndpoint 实例
+        router = Router(_router); // 初始化 router 实例
     }
 
     //---------------------------------------------------------------------------
-    // EXTERNAL functions
+    // EXTERNAL FUNCTIONS（外部函数）
 
+    // 外部函数，用于接收来自 LayerZero 的消息
     function lzReceive(
         uint16 _srcChainId,
         bytes memory _srcAddress,
         uint64 _nonce,
         bytes memory _payload
     ) external override {
-        require(msg.sender == address(layerZeroEndpoint), "Stargate: only LayerZero endpoint can call lzReceive");
+        require(msg.sender == address(layerZeroEndpoint), "Stargate: only LayerZero endpoint can call lzReceive"); // 限制只能由 layerZeroEndpoint 合约调用
         require(
             _srcAddress.length == bridgeLookup[_srcChainId].length && keccak256(_srcAddress) == keccak256(bridgeLookup[_srcChainId]),
-            "Stargate: bridge does not match"
+            "Stargate: bridge does not match" // 确保桥接地址匹配
         );
 
         uint8 functionType;
@@ -111,7 +114,9 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
     }
 
     //---------------------------------------------------------------------------
-    // LOCAL CHAIN FUNCTIONS
+    // LOCAL CHAIN FUNCTIONS（本地链函数）
+
+    // 进行交换操作
     function swap(
         uint16 _chainId,
         uint256 _srcPoolId,
@@ -127,6 +132,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         _call(_chainId, TYPE_SWAP_REMOTE, _refundAddress, _lzTxParams, payload);
     }
 
+    // 本地链回调赎回操作
     function redeemLocalCallback(
         uint16 _chainId,
         address payable _refundAddress,
@@ -149,6 +155,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         _call(_chainId, TYPE_REDEEM_LOCAL_CALL_BACK, _refundAddress, _lzTxParams, payload);
     }
 
+    //在本地链上赎回资产。它接收一些参数，将它们编码成字节数据，并通过调用_call函数将数据发送到指定的链上
     function redeemLocal(
         uint16 _chainId,
         uint256 _srcPoolId,
@@ -163,6 +170,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         _call(_chainId, TYPE_WITHDRAW_REMOTE, _refundAddress, _lzTxParams, payload);
     }
 
+    //发送信用信息。类似于redeemLocal函数，它也将参数编码成字节数据，并通过调用_call函数将数据发送到指定的链上
     function sendCredits(
         uint16 _chainId,
         uint256 _srcPoolId,
@@ -175,6 +183,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         _call(_chainId, TYPE_ADD_LIQUIDITY, _refundAddress, lzTxObj, payload);
     }
 
+    //查询发送交易所需的手续费。它根据不同的功能类型，编码不同的字节数据，并调用layerZeroEndpoint合约的estimateFees函数来估算手续费
     function quoteLayerZeroFee(
         uint16 _chainId,
         uint8 _functionType,
@@ -203,11 +212,13 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
 
     //---------------------------------------------------------------------------
     // dao functions
+    // 设置桥接器地址。该函数由合约所有者调用，用于设置特定链的桥接器地址
     function setBridge(uint16 _chainId, bytes calldata _bridgeAddress) external onlyOwner {
         require(bridgeLookup[_chainId].length == 0, "Stargate: Bridge already set!");
         bridgeLookup[_chainId] = _bridgeAddress;
     }
 
+    // 设置不同类型交易的燃料费用。该函数由合约所有者调用，用于设置特定链上特定类型交易的燃料费用
     function setGasAmount(
         uint16 _chainId,
         uint8 _functionType,
@@ -217,6 +228,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         gasLookup[_chainId][_functionType] = _gasAmount;
     }
 
+    //批准代币转移。该函数由合约所有者调用，用于批准特定代币的转移
     function approveTokenSpender(
         address token,
         address spender,
@@ -225,16 +237,19 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         IERC20(token).approve(spender, amount);
     }
 
+    //设置是否使用Layer Zero代币。该函数由合约所有者调用，用于设置是否启用Layer Zero代币
     function setUseLayerZeroToken(bool enable) external onlyOwner {
         useLayerZeroToken = enable;
     }
 
+    //强制恢复接收。该函数由合约所有者调用，用于强制恢复指定链上的接收功能
     function forceResumeReceive(uint16 _srcChainId, bytes calldata _srcAddress) external override onlyOwner {
         layerZeroEndpoint.forceResumeReceive(_srcChainId, _srcAddress);
     }
 
     //---------------------------------------------------------------------------
     // generic config for user Application
+    //设置配置信息。该函数由合约所有者调用，用于设置特定版本特定链的配置信息
     function setConfig(
         uint16 _version,
         uint16 _chainId,
@@ -244,10 +259,12 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         layerZeroEndpoint.setConfig(_version, _chainId, _configType, _config);
     }
 
+    // 设置发送版本号。该函数由合约所有者调用，用于设置Layer Zero发送的版本号
     function setSendVersion(uint16 version) external override onlyOwner {
         layerZeroEndpoint.setSendVersion(version);
     }
 
+    // 设置接收版本号。该函数由合约所有者调用，用于设置Layer Zero接收的版本号
     function setReceiveVersion(uint16 version) external override onlyOwner {
         layerZeroEndpoint.setReceiveVersion(version);
     }
@@ -268,6 +285,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         return abi.encodePacked(txType, _gasAmount, _dstNativeAmount, _dstNativeAddr);
     }
 
+    // 构建事务参数。根据链和类型，它将参数编码为不同类型的事务参数
     function _txParamBuilder(
         uint16 _chainId,
         uint8 _type,
@@ -292,6 +310,7 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         return lzTxParam;
     }
 
+    // 调用Layer Zero合约。它接收一些参数，构建事务参数，并通过调用layerZeroEndpoint合约的send函数发送交易
     function _call(
         uint16 _chainId,
         uint8 _type,
@@ -305,5 +324,6 @@ contract Bridge is Ownable, ILayerZeroReceiver, ILayerZeroUserApplicationConfig 
         emit SendMsg(_type, nextNonce);
     }
 
+    // 放弃合约所有权。这是OpenZeppelin的Ownable合约中的函数，用于放弃合约的所有权
     function renounceOwnership() public override onlyOwner {}
 }
