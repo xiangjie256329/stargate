@@ -3,6 +3,7 @@
 pragma solidity 0.7.6;
 
 interface IStargateReceiver {
+    // 用于接收跨链消息
     function sgReceive(
         uint16 _chainId,
         bytes memory _srcAddress,
